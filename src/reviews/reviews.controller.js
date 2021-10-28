@@ -1,37 +1,62 @@
 const service = require("./reviews.service");
 const asyncErrorBoundary = require("../errors/asyncErrorBoundary");
+const methodNotAllowed = require("../errors/methodNotAllowed");
 
-async function reviewExists(req, res, next){
-    const { reviewId } = req.params;
-    const review = await service.read(reviewId)
-    if(review){
-        res.locals.review = review;
-        return next();
-    }
-    return next({
-        status: 404, 
-        message: `Review cannot be found`
-    })
+async function reviewExists(request, response, next) {
+  const review = await service.read(request.params.reviewId);
+
+  if (review) {
+    response.locals.review = review;
+    return next();
+  }
+
+  next({ status: 404, message: `Review cannot be found.` });
 }
 
-async function update(req, res){
-    const updatedReview = {
-        ...req.body.data, 
-        review_id: res.locals.review.review_id,
-    }
-    await service.update(updatedReview);
-    const data = await service.getReviewWithCritic(res.locals.review.review_id)
-    res.json({ data })
+async function destroy(request, response) {
+  await service.destroy(response.locals.review.review_id);
+  response.sendStatus(204);
 }
 
-async function destroy(req, res){
-    const { review } = res.locals;
-    await service.delete(review.review_id);
-    res.sendStatus(204);
+async function list(request, response) {
+  const data = await service.list(request.params.movieId);
+  response.json({ data });
+}
+
+function hasMovieIdInPath(request, response, next) {
+  if (request.params.movieId) {
+    return next();
+  }
+  methodNotAllowed(request, response, next);
+}
+
+function noMovieIdInPath(request, response, next) {
+  if (request.params.movieId) {
+    return methodNotAllowed(request, response, next);
+  }
+  next();
+}
+
+async function update(request, response) {
+  const updatedReview = {
+    ...response.locals.review,
+    ...request.body.data,
+    review_id: response.locals.review.review_id,
+  };
+  const data = await service.update(updatedReview);
+  response.json({ data });
 }
 
 module.exports = {
-    update: [asyncErrorBoundary(reviewExists), asyncErrorBoundary(update)],
-    delete: [asyncErrorBoundary(reviewExists), asyncErrorBoundary(destroy)],
-
-}
+  destroy: [
+    noMovieIdInPath,
+    asyncErrorBoundary(reviewExists),
+    asyncErrorBoundary(destroy),
+  ],
+  list: [hasMovieIdInPath, asyncErrorBoundary(list)],
+  update: [
+    noMovieIdInPath,
+    asyncErrorBoundary(reviewExists),
+    asyncErrorBoundary(update),
+  ],
+};
